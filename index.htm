@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html ng-app="ASMSimulator">
+<head>
+	<meta charset="utf-8">
+    <title>使用JavaScript编写的8位汇编仿真器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="assets/bootstrap3/css/bootstrap.min.css">
+    <link rel="stylesheet" href="assets/style.css">
+</head>
+<body ng-controller="Ctrl">
+	<!--
+    <a href="https://github.com/Schweigi/assembler-simulator"><img style="z-index:1001;position: absolute; top: 0; right: 0; border: 0;" src="assets/forkme_right_red_aa0000.png" alt="项目源代码"></a>
+	-->
+    <nav class="navbar navbar-inverse" role="navigation" style="background-color:#428BCA;border:0px;border-radius:0px;">
+        <div class="container">
+            <div class="navbar-header">
+                <div class="btn-group">
+                    <button type="button" class="btn btn-success navbar-btn" ng-click="run()" ng-hide="isRunning"><span class="glyphicon glyphicon-play"></span> 运行</button>
+                    <button type="button" class="btn btn-default navbar-btn" ng-click="stop()" ng-show="isRunning"><span class="glyphicon glyphicon-stop"></span> 停止运行</button>
+                    <button type="button" class="btn btn-default navbar-btn" ng-click="executeStep()" ng-disabled="isRunning" style="margin-left:4px;"><span class="glyphicon glyphicon-forward"></span> 单步运行</button>
+                </div>
+                <button type="button" class="btn btn-default navbar-btn" ng-click="reset()">重新开始</button>
+                <button data-toggle="modal" href="#helpModal" class="btn btn-info navbar-btn">帮助</button>
+            </div>
+            <div class="navbar-header navbar-right">
+                <a class="navbar-brand" style="color:#FFFFFF">8位汇编仿真器</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container">
+        <div class="alert alert-danger" ng-hide="error === ''">{{ error }}</div>
+        <div class="row">
+            <div class="col-lg-7 col-md-6">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h4 class="panel-title">代码</h4>
+                    </div>
+                    <div class="panel-body">
+                        <form role="form">
+                            <textarea class="form-control source-code"
+                                      rows="14"
+                                      style="margin-bottom:5px;"
+									  spellcheck="false"
+                                      tab-support
+                                      select-line
+                                      ng-model="code"></textarea>
+                            <button type="button" class="btn btn-default" ng-click="assemble()">汇编成机器代码</button>
+                        </form>
+                    </div>
+                </div>
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h4 class="panel-title">输出</h4>
+                    </div>
+                    <div class="panel-body source-code">
+                        <div style="float:left;" class="output"
+                             ng-style="($index % 8 === 0 && {'clear': 'left'}) || {'float': 'left'}"
+                             ng-repeat="m in memory.data | startFrom: 232 track by $index">
+                            <span>{{ getChar(m) }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="clearfix visible-xs visible-sm"></div>
+            <div class="col-lg-5 col-md-6">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h4 class="panel-title">8位CPU 和 256字节内存</h4>
+                    </div>
+                    <div class="panel-body">
+                        <p class="text-muted">寄存器 / 标志</p>
+                        <table class="table table-condensed table-striped">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:center">A</th>
+                                    <th style="text-align:center">B</th>
+                                    <th style="text-align:center">C</th>
+                                    <th style="text-align:center">D</th>
+                                    <th style="text-align:center">IP</th>
+                                    <th style="text-align:center">SP</th>
+                                    <th style="text-align:center">Z</th>
+                                    <th style="text-align:center">C</th>
+                                    <th style="text-align:center">F</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr style="text-align:center;" class="source-code">
+                                    <td><small>{{ cpu.gpr[0] | number:displayHex }}</small></td>
+                                    <td><small>{{ cpu.gpr[1] | number:displayHex }}</small></td>
+                                    <td><small>{{ cpu.gpr[2] | number:displayHex }}</small></td>
+                                    <td><small>{{ cpu.gpr[3] | number:displayHex }}</small></td>
+                                    <td><div style="margin:auto;" class="marker-ip"><small>{{ cpu.ip | number:displayHex }}</small></div></td>
+                                    <td><div style="margin:auto;" class="marker-sp"><small>{{ cpu.sp | number:displayHex }}</small></div></td>
+                                    <td><small>{{ cpu.zero | flag }}</small></td>
+                                    <td><small>{{ cpu.carry | flag }}</small></td>
+                                    <td><small>{{ cpu.fault | flag }}</small></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p class="text-muted">内存</p>
+                        <div style="width:29em;" class="source-code">
+                            <div class="memory-block"
+                                 ng-repeat="m in memory.data track by $index"
+                                 ng-class="($index >= 232 && 'output-bg' || (mapping[$index] !== undefined && displayInstr && 'instr-bg' || ''))">
+                                 <div ng-class="(cpu.ip === $index && 'marker-ip' || (cpu.sp === $index && 'marker-sp' || ''))">
+                                    <small>{{ m | number:displayHex }}</small>
+                                 </div>
+                            </div>
+                        </div>
+                        <p style="margin-top:5px;">
+                            <small>
+                                <span>时钟速度:</span>
+                                <select ng-model="speed" ng-options="item.speed as item.desc for item in speeds"></select>
+                                <!-- LIU Quanbo 
+                                <span style="margin-left:5px;">指令:</span>
+								<a ng-click="displayInstr = true" ng-hide="displayInstr">显示</a>
+                                <a ng-click="displayInstr = false" ng-show="displayInstr">隐藏</a>
+                                <span style="margin-left:5px;">显示格式:</span>
+                                <a ng-click="displayHex = true" ng-hide="displayHex">十六进制</a>
+                                <a ng-click="displayHex = false" ng-show="displayHex">十进制</a>
+								-->
+                            </small>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <hr style="margin-top:10px;margin-bottom:10px;"/>
+		<p><small>作者： Marco Schweighauser (2013) | 修改：柳泉波 | MIT许可协议</small></p>
+        <div class="modal fade" id="helpModal" tabindex="-1" role="dialog" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                        <h3 class="modal-title">帮助</h3>
+                    </div>
+                    <div class="modal-body">
+                        <h4>1. 简介</h4>
+                        <p>这是一个仿真的8位X86 CPU，采用的汇编语言是<a href="http://www.nasm.us" target="_blank">NASM</a>的简化版。如果要深入地了解汇编语言，请访问下列（英文）站点：</p>
+                        <ul>
+                            <li><a href="http://en.wikipedia.org/wiki/Assembly_language" target="_blank">汇编语言 - 维基百科</a></li>
+                            <li><a href="http://cs.smith.edu/~thiebaut/ArtOfAssembly/artofasm.html" target="_blank">汇编语言程序设计的艺术</a></li>
+                            <li><a href="http://www.nasm.us/xdoc/2.10.09/html/nasmdoc3.html" target="_blank">NASM语言文档</a></li>
+                        </ul>
+                        <p>仿真器由一个8位CPU和256字节的内存组成。 所有的指令（代码）和变量（数据）都存储在内存中。为了保持简单性，每一条指令的操作码及其每一个操作数都占用1字节内存。因此，一条MOV 指令将使用3字节的内存。 控制台输出映射到内存地址0xE8到0xFF的范围之内。 内存映射是指往这些内存地址写入的数据，将显示在控制台上。</p>
+						<h4>2. 常量(constant)</h4>
+                        <p>常量包括数值、字符和字符串三类。</p><p>数值：</p>
+<pre>
+十进制: 200
+十进制: 200d
+十六进制: 0xA4
+八进制: 0o48
+二进制: 101b
+</pre>
+                        <p>字符和字符串:</p>
+<pre>
+单个字符: 'A'
+字符串: "Hello World!"
+</pre>
+<h4>3. 变量(variable)</h4>
+<p>使用DB指令定义一个变量，它的取值是常量，即数值、字符或者字符串。</p>
+<pre>
+DB 常量
+</pre>
+<h4>4. 指令语法</h4>
+                        <p>每条指令单独占一行，由标签、操作码、一个或两个操作数、注释组成。</p>
+                        <pre>标签: 操作码 操作数	; 注释</pre>
+                        <p>其中，标签是可选的，它以字母或者圆点(.)开始，以冒号(:)结束;最后以分号(;)开始的是注释，它也是可选的。操作码就是指令名称，例如前面提到的DB。操作数可能是四个通用寄存器之一、内存地址或者一个常量。</p>
+<pre>
+四个通用寄存器(reg): A, B, C, D
+使用寄存器表示的内存地址(adress): [A]
+使用常量表示的内存地址(address): [100]
+使用标签表示的内存地址(address): label
+常量(constant): 任何介于0-255(8位无符号)之间的数值
+</pre>
+                        <h4>5. MOV dest src - 复制取值</h4>
+                        <p>把<i>src</i>的取值复制到<i>dest</i>。 在仿真器中，MOV指令是可以直接修改内存的唯一指令。</p>
+<pre>
+MOV reg, reg
+MOV reg, address
+MOV reg, constant
+MOV address, reg
+MOV address, constant
+</pre>
+                        
+                        <h4>6. 数学运算</h4>
+                        <b>加减</b>
+                        <p>两个数相加或者相减。这两个运算会修改进位(Carry)和零值(Zero)标志。</p>
+<pre>
+ADD reg, reg
+ADD reg, address
+ADD reg, constant
+SUB reg, reg
+SUB reg, address
+SUB reg, constant
+</pre>
+                        <b>递增和递减</b>
+                        <p>使寄存器的取值增加1或者减少1。这两个运算会修改进位和零值标志。</p>
+<pre>
+INC reg
+DEC reg
+</pre>
+                        <b>乘除</b>
+                        <p><i>A</i>寄存器的取值乘以或者除以给定的取值。乘除运算会修改进位和零值标志。</p>
+<pre>
+MUL reg
+MUL address
+MUL constant
+DIV reg
+DIV address
+DIV constant
+</pre>
+                        <b>逻辑</b>
+                        <p>支持下列逻辑指令：AND(与), OR(或), XOR(异或), NOT(非)。 逻辑指令会修改进位和零值标志。</p>
+<pre>
+AND reg, reg
+AND reg, address
+AND reg, constant
+OR reg, reg
+OR reg, address
+OR reg, constant
+XOR reg, reg
+XOR reg, address
+XOR reg, constant
+NOT reg
+</pre>
+                        <b>移位指令</b>
+                        <p>左移指令SHL和右移指令SHR。移位指令会修改进位和零值标志。</p>
+<pre>
+SHL reg, reg
+SHL reg, address
+SHL reg, constant
+SHR reg, reg
+SHR reg, address
+SHR reg, constant
+</pre>
+                        <h4>7 CMP - 比较</h4>
+                        <p>比较两个取值，如果相等，则设置零值标志为TRUE。通常与条件跳转指令配合使用。</p>
+<pre>
+CMP reg, reg
+CMP reg, address
+CMP reg, constant
+</pre>
+                        <h4>8. 跳转</h4>
+                        <b>JMP - 无条件跳转</b>
+                        <p>让指令指针无条件指向给定的地址。</p>
+<pre>
+JMP address
+</pre>
+                        <b>条件跳转</b>
+                        <p>让指令指针有条件地指向指定的内存地址。</p>
+                        <table class="table table-condensed table-striped">
+                            <thead>
+                                <tr>
+                                    <th>指令</th>
+                                    <th>描述</th>
+                                    <th>条件</th>
+                                    <th>其它写法</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>JC</td>
+                                    <td>如果有进位，跳转</td>
+                                    <td>Carry = TRUE</td>
+                                    <td>JB, JNAE</td>
+                                </tr>
+                                <tr>
+                                    <td>JNC</td>
+                                    <td>如果没有进位，跳转</td>
+                                    <td>Carry = FALSE</td>
+                                    <td>JNB, JAE</td>
+                                </tr>
+                                <tr>
+                                    <td>JZ</td>
+                                    <td>如果是零值，跳转</td>
+                                    <td>Zero = TRUE</td>
+                                    <td>JB, JE</td>
+                                </tr>
+                                <tr>
+                                    <td>JNZ</td>
+                                    <td>如果不是零值，跳转</td>
+                                    <td>Zero = FALSE</td>
+                                    <td>JNE</td>
+                                </tr>
+                                <tr>
+                                    <td>JA</td>
+                                    <td>&gt;</td>
+                                    <td>C = FALSE && Z = FALSE</td>
+                                    <td>JNBE</td>
+                                </tr>
+                                <tr>
+                                    <td>JNBE</td>
+                                    <td>not &lt;=</td>
+                                    <td>C = FALSE && Z = FALSE</td>
+                                    <td>JA</td>
+                                </tr>
+                                <tr>
+                                    <td>JAE</td>
+                                    <td>&gt;=</td>
+                                    <td>Carry = FALSE</td>
+                                    <td>JNC, JNB</td>
+                                </tr>
+                                <tr>
+                                    <td>JNB</td>
+                                    <td>not &lt;</td>
+                                    <td>Carry = FALSE</td>
+                                    <td>JNC, JAE</td>
+                                </tr>
+                                <tr>
+                                    <td>JB</td>
+                                    <td>&lt;</td>
+                                    <td>Carry = TRUE</td>
+                                    <td>JC, JNAE</td>
+                                </tr>
+                                <tr>
+                                    <td>JNAE</td>
+                                    <td>not &gt;=</td>
+                                    <td>Carry = TRUE</td>
+                                    <td>JC, JB</td>
+                                </tr>
+                                <tr>
+                                    <td>JBE</td>
+                                    <td>&lt;=</td>
+                                    <td>C = TRUE or Z = TRUE</td>
+                                    <td>JNA</td>
+                                </tr>
+                                <tr>
+                                    <td>JNA</td>
+                                    <td>not &gt;</td>
+                                    <td>C = TRUE or Z = TRUE</td>
+                                    <td>JBE</td>
+                                </tr>
+                                <tr>
+                                    <td>JE</td>
+                                    <td>=</td>
+                                    <td>Z = TRUE</td>
+                                    <td>JZ</td>
+                                </tr>
+                                <tr>
+                                    <td>JNE</td>
+                                    <td>!=</td>
+                                    <td>Z = FALSE</td>
+                                    <td>JNZ</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <b>CALL - 调用某个函数</b>
+                        <p>将下一条指令的地址送进堆栈，然后跳转到某个函数的起始地址。</p>
+<pre>
+CALL address
+</pre>
+                        <b>RET - 从当前执行的函数中退出</b>
+                        <p>跳转到堆栈中CALL指令送入的指令地址。注意：堆栈操作必须是匹配的，确保取出正确的地址。</p>
+<pre>
+RET
+</pre>
+                        <h4>9. 堆栈指令</h4>
+                        <b>PUSH - 入栈</b>
+                        <p>送一个值进栈。堆栈向下增长，它的当前位置记录在堆栈指针寄存器(SP)中。PUSH操作会减少SP的取值。</p>
+<pre>
+PUSH reg
+PUSH address
+PUSH constant
+</pre>
+                        <b>POP - 出栈</b>
+                        <p>从堆栈弹出一个值到寄存器中。POP指令会增加SP的取值。</p>
+<pre>
+POP reg
+</pre>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">关闭</button>
+                    </div>
+                </div><!-- /.modal-content -->
+            </div><!-- /.modal-dialog -->
+        </div><!-- /.modal -->
+    </div>
+    <script src="assets/jquery.min.js"></script>
+    <script src="assets/bootstrap3/js/bootstrap.min.js"></script>
+    <script src="assets/angular.js"></script>
+    <script src="assets/asmsimulator.js"></script>
+</body>
+</html>
