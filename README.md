@@ -1,5 +1,7 @@
-用Angular.j编写的8位汇编仿真器
+用Angular.js编写的8位CPU仿真器
 ==============================
+
+原项目地址：[assember-simulator](https://github.com/Schweigi/assembler-simulator)
 
 这是一个仿真的8位X86 CPU，采用的汇编语言是[NASM](http://www.nasm.us)的简化版。
 
@@ -15,10 +17,6 @@
 ## 如何构建
 
 运行[grunt](http://www.gruntjs.com/)构建项目。
-
-## 关于
-
-原项目地址：[assember-simulator](https://github.com/Schweigi/assembler-simulator)
 
 ## 许可协议
 
